@@ -33,7 +33,7 @@ async function askChatGPT(prompt: string) {
       {
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer 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`, 
+          Authorization: `Bearer 1234`, 
         },
         timeout: 120000, // prevent infinite hang
       }
