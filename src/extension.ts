@@ -87,7 +87,7 @@ function analyzeProject(rootPath:any) {
 async function askChatGPT(prompt:any) {
   try {
     const response = await axios.post(
-      "https://agentic-poc-jqje.vercel.app/generate-tests",
+      "https://p3kprjnk-3000.uks1.devtunnels.ms/generate-tests",
       { code: prompt },
       {
         headers: {
@@ -140,7 +140,29 @@ Project Context:
     }
 `;
 
-    const testPrompt = `${detailsString}\nNow generate unit test cases using the detected testing library (prefer Jest if available) for the following code:\n\n${code}.
+    const testPrompt = `You are an AI assistant that writes high-quality unit test cases.
+    ${detailsString}\nProject Context:
+- Framework: Koa (^2.13.4)
+- NodeJS: Docker node:22.16.0
+- Script: TypeScript
+- FE/BE: Backend
+- Testing Libraries: jest:^29.7.0
+
+Instructions:
+1. Write **unit test cases** in TypeScript using **Jest** (since Jest is available in the project).
+2. Focus on testing all possible paths:
+   - Successful case (job exists).
+   - Failure case (job not found → should throw NotFoundError).
+   - Validation case (invalid jobId → should throw error).
+3. Mock dependencies properly.
+4. Ensure tests do **not rely on actual database** or API calls (use mocking/stubbing).
+5. Use a clear describe and it structure with meaningful names.
+6. Return only the test file code.
+
+Code under test:
+
+${code}
+
     Note: output the details given about detected testing library`;
 
     const result = await askChatGPT(testPrompt);
