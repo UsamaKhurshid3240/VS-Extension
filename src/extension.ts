@@ -1,5 +1,165 @@
-const vscode = require('vscode');
-const axios = require('axios');
+const vscode = require("vscode");
+const axios = require("axios");
+const fs = require("fs");
+const path = require("path");
+
+/**
+ * Analyze project details
+ */
+function analyzeProject(rootPath:any) {
+  let details = {
+    Framework: "N/A",
+    NodeJS: "N/A",
+    Script: "Unknown",
+    TestingLibs: [] as any,
+    FE_BE: "Unknown",
+  };
+
+  const pkgPath = path.join(rootPath, "package.json");
+  const dockerPath = path.join(rootPath, "Dockerfile");
+
+  if (fs.existsSync(pkgPath)) {
+    const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf-8"));
+    const deps = {
+      ...pkg.dependencies,
+      ...pkg.devDependencies,
+      ...pkg.peerDependencies,
+      ...pkg.optionalDependencies,
+    };
+
+    // Node.js version
+    if (pkg.engines?.node) {
+      details.NodeJS = pkg.engines.node;
+    } else if (fs.existsSync(dockerPath)) {
+      const dockerContent = fs.readFileSync(dockerPath, "utf-8");
+      const match = dockerContent.match(/FROM\s+node:(\d+\.\d+\.\d+)/);
+      if (match) {
+        details.NodeJS = `Docker node:${match[1]}`;
+      } else {
+        details.NodeJS = process.version;
+      }
+    } else {
+      details.NodeJS = process.version;
+    }
+
+    // Script type
+    if (fs.existsSync(path.join(rootPath, "tsconfig.json"))) {
+      details.Script = "TypeScript";
+    } else {
+      details.Script = "JavaScript";
+    }
+
+    // Frontend frameworks
+    const frontendFrameworks = ["react", "next", "vue", "angular", "svelte", "remix"];
+    for (const fw of frontendFrameworks) {
+      if (deps[fw]) {
+        details.Framework = `${fw} (${deps[fw]})`;
+        details.FE_BE = "Frontend";
+        break;
+      }
+    }
+
+    // Backend frameworks
+    const backendFrameworks = ["express", "fastify", "nestjs", "koa"];
+    for (const fw of backendFrameworks) {
+      if (deps[fw]) {
+        details.Framework = `${fw.charAt(0).toUpperCase() + fw.slice(1)} (${deps[fw]})`;
+        details.FE_BE = details.FE_BE === "Frontend" ? "Fullstack" : "Backend";
+        break;
+      }
+    }
+
+    // Testing libs (ignore @types/*)
+    const testLibs = ["jest", "mocha", "chai", "cypress", "vitest", "playwright", "jasmine"];
+    testLibs.forEach((lib) => {
+      if (deps[lib]) {
+        details.TestingLibs.push({ name: lib, version: deps[lib] });
+      }
+    });
+  }
+
+  return details;
+}
+
+/**
+ * Call API
+ */
+async function askChatGPT(prompt:any) {
+  try {
+    const response = await axios.post(
+      "https://agentic-poc-jqje.vercel.app/generate-tests",
+      { code: prompt },
+      {
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer 1234`,
+        },
+        timeout: 120000,
+      }
+    );
+    return response.data.tests?.trim();
+  } catch (err:any) {
+    console.error("ChatGPT API Error:", err.response?.data || err.message);
+    return "Error: " + (err.response?.data?.error?.message || err.message);
+  }
+}
+
+function activate(context:any) {
+  let disposable = vscode.commands.registerCommand("ai-helper.generateTests", async () => {
+    const editor = vscode.window.activeTextEditor;
+    if (!editor) {
+      vscode.window.showErrorMessage("No active editor");
+      return;
+    }
+
+    // --- project details retrieval
+    const workspaceFolders = vscode.workspace.workspaceFolders;
+    let projectDetails = {} as any;
+    if (workspaceFolders) {
+      const rootPath = workspaceFolders[0].uri.fsPath;
+      projectDetails = analyzeProject(rootPath);
+    }
+
+    // --- code from editor
+    const selection = editor.selection;
+    let code = editor.document.getText(selection.isEmpty ? undefined : selection);
+
+    vscode.window.showInformationMessage("Generating test cases...");
+
+    // --- build prompt with project context
+    const detailsString = `
+Project Context:
+- Framework: ${projectDetails.Framework}
+- NodeJS: ${projectDetails.NodeJS}
+- Script: ${projectDetails.Script}
+- FE/BE: ${projectDetails.FE_BE}
+- Testing Libraries: ${
+      projectDetails.TestingLibs.length > 0
+        ? projectDetails.TestingLibs.map((lib:any) => `${lib.name}:${lib.version}`).join(", ")
+        : "N/A"
+    }
+`;
+
+    const testPrompt = `${detailsString}\nNow generate unit test cases using the detected testing library (prefer Jest if available) for the following code:\n\n${code}.
+    Note: output the details given about detected testing library`;
+
+    const result = await askChatGPT(testPrompt);
+
+    // --- write to new file
+    const testFile = await vscode.workspace.openTextDocument({
+      content: result,
+      language: "javascript", // ya typescript bhi detect karke dal sakte ho
+    });
+    await vscode.window.showTextDocument(testFile, vscode.ViewColumn.Beside);
+  });
+
+  context.subscriptions.push(disposable);
+}
+
+function deactivate() {}
+
+module.exports = { activate, deactivate };
+
 
 // async function askChatGPT(prompt:any) {
 //     try {
@@ -22,61 +182,6 @@ const axios = require('axios');
 //         return "Error: " + err.message;
 //     }
 // }
-
-async function askChatGPT(prompt: string) {
-  try {
-    const response = await axios.post(
-      "https://agentic-poc-jqje.vercel.app/generate-tests",
-      {
-        code: prompt ,
-      },
-      {
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer 1234`, 
-        },
-        timeout: 120000, // prevent infinite hang
-      }
-    );
-
-    return response.data.tests?.trim();
-  } catch (err: any) {
-    console.error("ChatGPT API Error:", err.response?.data || err.message);
-    return "Error: " + (err.response?.data?.error?.message || err.message);
-  }
-}
-function activate(context:any) {
-    let disposable = vscode.commands.registerCommand('ai-helper.generateTests', async () => {
-        const editor = vscode.window.activeTextEditor;
-        if (!editor) {
-            vscode.window.showErrorMessage("No active editor");
-            return;
-        }
-
-        const selection = editor.selection;
-        let code = editor.document.getText(selection.isEmpty ? undefined : selection);
-
-        vscode.window.showInformationMessage("Generating test cases...");
-
-        const testPrompt = `Generate unit test cases using jest for the following code:\n\n${code}`;
-        const result = await askChatGPT(testPrompt);
-
-        // Write to new file
-        const testFile = await vscode.workspace.openTextDocument({
-            content: result,
-            language: "javascript" // aap language apne use case ke hisaab se change kar sakte ho
-        });
-        await vscode.window.showTextDocument(testFile, vscode.ViewColumn.Beside);
-    });
-
-    context.subscriptions.push(disposable);
-}
-
-function deactivate() {}
-
-module.exports = { activate, deactivate };
-
-
 
 // const vscode = require("vscode");
 // const fs = require("fs");
