@@ -1,17 +1,16 @@
 const vscode = require("vscode");
-const axios = require("axios");
 const fs = require("fs");
 const path = require("path");
 
 /**
  * Analyze project details
  */
-function analyzeProject(rootPath:any) {
+function analyzeProject(rootPath: any) {
   let details = {
     Framework: "N/A",
     NodeJS: "N/A",
     Script: "Unknown",
-    TestingLibs: [] as any,
+    TestingLibs: [] as any[],
     FE_BE: "Unknown",
   };
 
@@ -27,31 +26,25 @@ function analyzeProject(rootPath:any) {
       ...pkg.optionalDependencies,
     };
 
-    // Node.js version
+    // Node version
     if (pkg.engines?.node) {
       details.NodeJS = pkg.engines.node;
     } else if (fs.existsSync(dockerPath)) {
       const dockerContent = fs.readFileSync(dockerPath, "utf-8");
       const match = dockerContent.match(/FROM\s+node:(\d+\.\d+\.\d+)/);
-      if (match) {
-        details.NodeJS = `Docker node:${match[1]}`;
-      } else {
-        details.NodeJS = process.version;
-      }
+      details.NodeJS = match ? `Docker node:${match[1]}` : process.version;
     } else {
       details.NodeJS = process.version;
     }
 
     // Script type
-    if (fs.existsSync(path.join(rootPath, "tsconfig.json"))) {
-      details.Script = "TypeScript";
-    } else {
-      details.Script = "JavaScript";
-    }
+    details.Script = fs.existsSync(path.join(rootPath, "tsconfig.json"))
+      ? "TypeScript"
+      : "JavaScript";
 
-    // Frontend frameworks
-    const frontendFrameworks = ["react", "next", "vue", "angular", "svelte", "remix"];
-    for (const fw of frontendFrameworks) {
+    // Frontend
+    const fe = ["react", "next", "vue", "angular", "svelte"];
+    for (const fw of fe) {
       if (deps[fw]) {
         details.Framework = `${fw} (${deps[fw]})`;
         details.FE_BE = "Frontend";
@@ -59,18 +52,26 @@ function analyzeProject(rootPath:any) {
       }
     }
 
-    // Backend frameworks
-    const backendFrameworks = ["express", "fastify", "nestjs", "koa"];
-    for (const fw of backendFrameworks) {
+    // Backend
+    const be = ["express", "fastify", "nestjs", "koa"];
+    for (const fw of be) {
       if (deps[fw]) {
-        details.Framework = `${fw.charAt(0).toUpperCase() + fw.slice(1)} (${deps[fw]})`;
-        details.FE_BE = details.FE_BE === "Frontend" ? "Fullstack" : "Backend";
+        details.Framework = `${fw} (${deps[fw]})`;
+        details.FE_BE =
+          details.FE_BE === "Frontend" ? "Fullstack" : "Backend";
         break;
       }
     }
 
-    // Testing libs (ignore @types/*)
-    const testLibs = ["jest", "mocha", "chai", "cypress", "vitest", "playwright", "jasmine"];
+    // Testing libs
+    const testLibs = [
+      "jest",
+      "mocha",
+      "chai",
+      "vitest",
+      "cypress",
+      "playwright",
+    ];
     testLibs.forEach((lib) => {
       if (deps[lib]) {
         details.TestingLibs.push({ name: lib, version: deps[lib] });
@@ -82,98 +83,94 @@ function analyzeProject(rootPath:any) {
 }
 
 /**
- * Call API
+ * ❌ REAL API CALL (COMMENTED)
  */
-async function askChatGPT(prompt:any) {
-  try {
-    const response = await axios.post(
-      "https://p3kprjnk-3000.uks1.devtunnels.ms/generate-tests",
-      { code: prompt },
-      {
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer 1234`,
-        },
-        timeout: 120000,
-      }
-    );
-    return response.data.tests?.trim();
-  } catch (err:any) {
-    console.error("ChatGPT API Error:", err.response?.data || err.message);
-    return "Error: " + (err.response?.data?.error?.message || err.message);
+// async function askChatGPT(prompt: any) {
+//   ...
+// }
+
+/**
+ * ✅ Dummy streaming AI response (word by word)
+ */
+async function* dummyStreamResponse() {
+  // Replace with the api request and stream handling
+  const dummyText = `
+import { describe, it, expect, jest } from '@jest/globals';
+import { getJobById } from '../job.service';
+
+describe('getJobById', () => {
+  it('should return job when job exists', async () => {
+    const job = await getJobById('123');
+    expect(job).toBeDefined();
+  });
+
+  it('should throw NotFoundError when job does not exist', async () => {
+    await expect(getJobById('999')).rejects.toThrow();
+  });
+
+  it('should throw error for invalid jobId', async () => {
+    await expect(getJobById(null as any)).rejects.toThrow();
+  });
+});
+`;
+
+  const words = dummyText.split(" ");
+
+  for (const word of words) {
+    yield word + " ";
+    await new Promise((res) => setTimeout(res, 60)); // typing speed
   }
 }
 
-function activate(context:any) {
-  let disposable = vscode.commands.registerCommand("ai-helper.generateTests", async () => {
-    const editor = vscode.window.activeTextEditor;
-    if (!editor) {
-      vscode.window.showErrorMessage("No active editor");
-      return;
+/**
+ * Extension activate
+ */
+function activate(context: any) {
+  let disposable = vscode.commands.registerCommand(
+    "ai-helper.generateTests",
+    async () => {
+      const editor = vscode.window.activeTextEditor;
+      if (!editor) {
+        vscode.window.showErrorMessage("No active editor");
+        return;
+      }
+
+      // Project details
+      let projectDetails: any = {};
+      const workspaceFolders = vscode.workspace.workspaceFolders;
+      if (workspaceFolders) {
+        projectDetails = analyzeProject(workspaceFolders[0].uri.fsPath);
+      }
+
+      // Code selection
+      const selection = editor.selection;
+      const code = editor.document.getText(
+        selection.isEmpty ? undefined : selection
+      );
+
+      vscode.window.showInformationMessage("Streaming test cases...");
+
+      // Open empty document
+      const testFile = await vscode.workspace.openTextDocument({
+        content: "",
+        language: "typescript",
+      });
+
+      const editorView = await vscode.window.showTextDocument(
+        testFile,
+        vscode.ViewColumn.Beside
+      );
+
+      // Stream response
+      for await (const chunk of dummyStreamResponse()) {
+        await editorView.edit((editBuilder: any) => {
+          const lastLine = testFile.lineCount;
+          const lastChar = testFile.lineAt(lastLine - 1).range.end;
+          editBuilder.insert(lastChar, chunk);
+        });
+      }
     }
-
-    // --- project details retrieval
-    const workspaceFolders = vscode.workspace.workspaceFolders;
-    let projectDetails = {} as any;
-    if (workspaceFolders) {
-      const rootPath = workspaceFolders[0].uri.fsPath;
-      projectDetails = analyzeProject(rootPath);
-    }
-
-    // --- code from editor
-    const selection = editor.selection;
-    let code = editor.document.getText(selection.isEmpty ? undefined : selection);
-
-    vscode.window.showInformationMessage("Generating test cases...");
-
-    // --- build prompt with project context
-    const detailsString = `
-Project Context:
-- Framework: ${projectDetails.Framework}
-- NodeJS: ${projectDetails.NodeJS}
-- Script: ${projectDetails.Script}
-- FE/BE: ${projectDetails.FE_BE}
-- Testing Libraries: ${
-      projectDetails.TestingLibs.length > 0
-        ? projectDetails.TestingLibs.map((lib:any) => `${lib.name}:${lib.version}`).join(", ")
-        : "N/A"
-    }
-`;
-
-    const testPrompt = `You are an AI assistant that writes high-quality unit test cases.
-    ${detailsString}\nProject Context:
-- Framework: Koa (^2.13.4)
-- NodeJS: Docker node:22.16.0
-- Script: TypeScript
-- FE/BE: Backend
-- Testing Libraries: jest:^29.7.0
-
-Instructions:
-1. Write **unit test cases** in TypeScript using **Jest** (since Jest is available in the project).
-2. Focus on testing all possible paths:
-   - Successful case (job exists).
-   - Failure case (job not found → should throw NotFoundError).
-   - Validation case (invalid jobId → should throw error).
-3. Mock dependencies properly.
-4. Ensure tests do **not rely on actual database** or API calls (use mocking/stubbing).
-5. Use a clear describe and it structure with meaningful names.
-6. Return only the test file code.
-
-Code under test:
-
-${code}
-
-    Note: output the details given about detected testing library`;
-
-    const result = await askChatGPT(testPrompt);
-
-    // --- write to new file
-    const testFile = await vscode.workspace.openTextDocument({
-      content: result,
-      language: "javascript", // ya typescript bhi detect karke dal sakte ho
-    });
-    await vscode.window.showTextDocument(testFile, vscode.ViewColumn.Beside);
-  });
+  );
 
   context.subscriptions.push(disposable);
 }
@@ -181,234 +178,3 @@ ${code}
 function deactivate() {}
 
 module.exports = { activate, deactivate };
-
-
-// async function askChatGPT(prompt:any) {
-//     try {
-//         const response = await axios.post(
-//             "https://qb40xwh8-11434.uks1.devtunnels.ms/api/generate",
-//             {
-             
-//                 model: 'deepcoder:1.5b',
-//        			prompt: prompt,
-//         		stream: false ,
-//             },
-//             {
-//                 headers: {
-//                     "Content-Type": "application/json",
-//                 },
-//             }
-//         );
-//         return response?.data ;
-//     } catch (err:any) {
-//         return "Error: " + err.message;
-//     }
-// }
-
-// const vscode = require("vscode");
-// const fs = require("fs");
-// const path = require("path");
-
-// /**
-//  * Analyze project details
-//  */
-// function analyzeProject(rootPath: any) {
-//   interface ProjectDetails {
-//     Framework: string;
-//     NodeJS: string;
-//     Script: string;
-//     TestingLibs: { name: string; version: string }[];
-//     FE_BE: string;
-//   }
-//   let details: ProjectDetails = {
-//     Framework: "N/A",
-//     NodeJS: "N/A",
-//     Script: "Unknown",
-//     TestingLibs: [],
-//     FE_BE: "Unknown",
-//   };
-
-//   const pkgPath = path.join(rootPath, "package.json");
-
-//   if (fs.existsSync(pkgPath)) {
-//     const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf-8"));
-//     const deps = { ...pkg.dependencies, ...pkg.devDependencies };
-
-//     // Node.js version
-//     details.NodeJS = pkg.engines?.node || process.version;
-
-//     // Script type
-//     if (fs.existsSync(path.join(rootPath, "tsconfig.json"))) {
-//       details.Script = "TypeScript";
-//     } else {
-//       details.Script = "JavaScript";
-//     }
-
-//     // Frontend frameworks
-//     const frameworks = ["react", "next", "vue", "angular", "svelte", "remix"];
-//     for (const fw of frameworks) {
-//       if (deps[fw]) {
-//         details.Framework = `${fw} (${deps[fw]})`;
-//         details.FE_BE = "Frontend";
-//         break;
-//       }
-//     }
-
-//     // Backend frameworks
-//     if (deps["express"] || deps["fastify"] || deps["nestjs"]) {
-//       details.FE_BE = details.FE_BE === "Frontend" ? "Fullstack" : "Backend";
-//       if (deps["express"]) details.Framework = `Express (${deps["express"]})`;
-//       if (deps["fastify"]) details.Framework = `Fastify (${deps["fastify"]})`;
-//       if (deps["nestjs"]) details.Framework = `NestJS (${deps["nestjs"]})`;
-//     }
-
-//     // Testing libs
-//     const testLibs = ["jest", "mocha", "chai", "cypress", "vitest", "playwright", "jasmine"];
-//     testLibs.forEach((lib) => {
-//       if (deps[lib]) {
-//         details.TestingLibs.push({ name: lib, version: deps[lib] });
-//       }
-//     });
-//   }
-
-//   return details;
-// }
-
-// /**
-//  * Webview content (overlay modal UI style)
-//  */
-// function getWebviewContent(details: any) {
-//   return `
-//     <!DOCTYPE html>
-//     <html lang="en">
-//     <head>
-//       <meta charset="UTF-8">
-//       <style>
-//         body {
-//           margin: 0;
-//           font-family: sans-serif;
-//           background: #f5f5f5;
-//         }
-//         .overlay {
-//           position: fixed;
-//           top: 0; left: 0;
-//           width: 100%; height: 100%;
-//           background: rgba(0,0,0,0.6);
-//           display: flex;
-//           justify-content: center;
-//           align-items: center;
-//         }
-//         .modal {
-//           background: #fff;
-//           padding: 20px;
-//           border-radius: 8px;
-//           width: 520px;
-//           box-shadow: 0 5px 15px rgba(0,0,0,0.3);
-//           max-height: 80%;
-//           overflow-y: auto;
-//         }
-//         .title {
-//           font-size: 20px;
-//           font-weight: bold;
-//           margin-bottom: 12px;
-//         }
-//         .section {
-//           margin: 8px 0;
-//         }
-//         .btn-grid {
-//           display: grid;
-//           grid-template-columns: repeat(2, 1fr);
-//           gap: 8px;
-//           margin-top: 10px;
-//         }
-//         .btn {
-//           background: #007acc;
-//           color: #fff;
-//           border: none;
-//           padding: 8px 12px;
-//           border-radius: 4px;
-//           cursor: pointer;
-//           text-align: center;
-//         }
-//         .btn:hover {
-//           background: #005f99;
-//         }
-//       </style>
-//     </head>
-//     <body>
-//       <div class="overlay">
-//         <div class="modal">
-//           <div class="title">📦 Project Details</div>
-//           <div class="section">Framework: ${details.Framework}</div>
-//           <div class="section">NodeJS: ${details.NodeJS}</div>
-//           <div class="section">Script: ${details.Script}</div>
-//           <div class="section">FE/BE: ${details.FE_BE}</div>
-//           <div class="section">
-//             Testing Libraries: ${
-//               details.TestingLibs.length > 0
-//                 ? details.TestingLibs.map((lib: any) => `${lib.name}:${lib.version}`).join(", ")
-//                 : "N/A"
-//             }
-//           </div>
-
-//           <div class="title">⚡ AI Actions</div>
-//           <div class="btn-grid">
-//             <button class="btn" onclick="runAction('Generate test cases')">Generate test cases</button>
-//             <button class="btn" onclick="runAction('Explain working of file')">Explain file</button>
-//             <button class="btn" onclick="runAction('Function test cases')">Function test cases</button>
-//             <button class="btn" onclick="runAction('Service usage search')">Service usage search</button>
-//             <button class="btn" onclick="runAction('Explain PR changes')">Explain PR changes</button>
-//           </div>
-//         </div>
-//       </div>
-
-//       <script>
-//         const vscode = acquireVsCodeApi();
-//         function runAction(action) {
-//           vscode.postMessage({ command: 'runAction', action });
-//         }
-//       </script>
-//     </body>
-//     </html>
-//   `;
-// }
-
-// function activate(context: any) {
-//   let disposable = vscode.commands.registerCommand("ai-helper.generateTests", async () => {
-//     const workspaceFolders = vscode.workspace.workspaceFolders;
-//     if (!workspaceFolders) {
-//       vscode.window.showErrorMessage("No workspace open");
-//       return;
-//     }
-
-//     const rootPath = workspaceFolders[0].uri.fsPath;
-//     const details = analyzeProject(rootPath);
-
-//     const panel = vscode.window.createWebviewPanel(
-//       "aiHelper",
-//       "AI Helper",
-//       vscode.ViewColumn.Beside,
-//       { enableScripts: true, retainContextWhenHidden: true }
-//     );
-
-//     panel.webview.html = getWebviewContent(details);
-
-//     // Handle button clicks
-//     panel.webview.onDidReceiveMessage(
-//       (message: any) => {
-//         if (message.command === "runAction") {
-//           vscode.window.showInformationMessage(`Action triggered: ${message.action}`);
-//           console.log("AI Action:", message.action); // For debugging
-//         }
-//       },
-//       undefined,
-//       context.subscriptions
-//     );
-//   });
-
-//   context.subscriptions.push(disposable);
-// }
-
-// function deactivate() {}
-
-// module.exports = { activate, deactivate };
