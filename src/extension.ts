@@ -83,44 +83,71 @@ function analyzeProject(rootPath: any) {
 }
 
 /**
- * ❌ REAL API CALL (COMMENTED)
+ * ✅ Stream response from backend API
  */
-// async function askChatGPT(prompt: any) {
-//   ...
-// }
+async function* askChatGPT(prompt: any) {
+  const backendUrl = process.env.BACKEND_URL || "http://localhost:8000";
+
+  try {
+    const res = await fetch(
+      `${backendUrl}/agent?prompt=${encodeURIComponent(prompt)}`
+    );
+
+    if (!res.ok) {
+      throw new Error(`API Error: ${res.status} ${res.statusText}`);
+    }
+
+    const reader = res.body?.getReader();
+    if (!reader) {
+      throw new Error("No response stream");
+    }
+
+    const decoder = new TextDecoder();
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      const chunk = decoder.decode(value);
+      yield chunk;
+    }
+  } catch (error: any) {
+    throw new Error(`Backend API failed: ${error.message}`);
+  }
+}
 
 /**
  * ✅ Dummy streaming AI response (word by word)
  */
-async function* dummyStreamResponse() {
-  // Replace with the api request and stream handling
-  const dummyText = `
-import { describe, it, expect, jest } from '@jest/globals';
-import { getJobById } from '../job.service';
+// async function* dummyStreamResponse() {
+//   // Replace with the api request and stream handling
+//   const dummyText = `
+// import { describe, it, expect, jest } from '@jest/globals';
+// import { getJobById } from '../job.service';
 
-describe('getJobById', () => {
-  it('should return job when job exists', async () => {
-    const job = await getJobById('123');
-    expect(job).toBeDefined();
-  });
+// describe('getJobById', () => {
+//   it('should return job when job exists', async () => {
+//     const job = await getJobById('123');
+//     expect(job).toBeDefined();
+//   });
 
-  it('should throw NotFoundError when job does not exist', async () => {
-    await expect(getJobById('999')).rejects.toThrow();
-  });
+//   it('should throw NotFoundError when job does not exist', async () => {
+//     await expect(getJobById('999')).rejects.toThrow();
+//   });
 
-  it('should throw error for invalid jobId', async () => {
-    await expect(getJobById(null as any)).rejects.toThrow();
-  });
-});
-`;
+//   it('should throw error for invalid jobId', async () => {
+//     await expect(getJobById(null as any)).rejects.toThrow();
+//   });
+// });
+// `;
 
-  const words = dummyText.split(" ");
+//   const words = dummyText.split(" ");
 
-  for (const word of words) {
-    yield word + " ";
-    await new Promise((res) => setTimeout(res, 60)); // typing speed
-  }
-}
+//   for (const word of words) {
+//     yield word + " ";
+//     await new Promise((res) => setTimeout(res, 60)); // typing speed
+//   }
+// }
 
 /**
  * Extension activate
@@ -162,7 +189,7 @@ function activate(context: any) {
       );
 
       // Stream response
-      for await (const chunk of dummyStreamResponse()) {
+      for await (const chunk of askChatGPT(code)) {
         await editorView.edit((editBuilder: any) => {
           const lastLine = testFile.lineCount;
           const lastChar = testFile.lineAt(lastLine - 1).range.end;
