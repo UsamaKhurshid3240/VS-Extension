@@ -12,22 +12,22 @@
   ],
   "activationEvents": [],
   "main": "./dist/extension.js",
-"contributes": {
-  "commands": [
-    {
-      "command": "ai-helper.generateTests",
-      "title": "AI Helper: Generate Test Cases"
-    }
-  ],
-  "menus": {
-    "editor/context": [
+  "contributes": {
+    "commands": [
       {
         "command": "ai-helper.generateTests",
-        "when": "editorTextFocus"
+        "title": "AI Helper: Generate Test Cases"
       }
-    ]
-  }
-},
+    ],
+    "menus": {
+      "editor/context": [
+        {
+          "command": "ai-helper.generateTests",
+          "when": "editorTextFocus"
+        }
+      ]
+    }
+  },
   "scripts": {
     "vscode:prepublish": "npm run package",
     "compile": "webpack",
